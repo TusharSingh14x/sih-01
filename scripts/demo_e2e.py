@@ -30,20 +30,26 @@ def scenario(client, tamper):
     evidence = call("GET", "/api/evidence?investigation_id=" + case["id"], analyst)
     for item in evidence:
         call("POST", "/api/blockchain/register", analyst, json={"evidence_id":item["id"]})
-    for category, severity, title in [("process", "CRITICAL", "Possible miner - synthetic escalation"), ("network", "HIGH", "Suspicious indicator: mining-pool connection")]:
-        ids = [e["id"] for e in evidence if e["details"]["agent_id"] == "PC-001" and e["capability"].startswith(category)]
-        call("POST", "/api/findings", analyst, json={"investigation_id":case["id"],"category":category,"severity":severity,"title":title,
-            "description":"Synthetic demonstration finding; analyst review required. CRITICAL is a manual demo escalation, not the automatic rule severity.","evidence_ids":ids,"confidence":0.75})
+    findings = call("GET", "/api/findings", analyst)
+    assert any(f["title"] == "Possible mining process" for f in findings)
+    assert any(f["title"] == "Connection to review: remote port 3333" for f in findings)
+    batch = call("POST", "/api/blockchain/batches", analyst, json={"investigation_id":case["id"], "evidence_ids":[e["id"] for e in evidence]})
+    batch_check = call("GET", "/api/blockchain/batches/" + batch["id"] + "/verify", analyst)
+    assert batch_check["status"] == "VERIFIED" and all(p["valid"] for p in batch_check["proofs"])
     first = next(e for e in evidence if e["details"]["agent_id"] == "PC-001" and e["capability"] == "system.info")
     second = next(e for e in evidence if e["details"]["agent_id"] == "PC-002" and e["capability"] == "system.info")
     tamper(first)
     results = {"PC-001":call("GET", "/api/blockchain/verify/" + first["id"], analyst)["status"],
                "PC-002":call("GET", "/api/blockchain/verify/" + second["id"], analyst)["status"]}
     assert results == {"PC-001":"MISMATCH", "PC-002":"VERIFIED"}
+    tampered_batch = call("GET", "/api/blockchain/batches/" + batch["id"] + "/verify", analyst)
+    assert tampered_batch["status"] == "MISMATCH"
     report = call("POST", "/api/reports", analyst, json={"investigation_id":case["id"],"title":"CASE-001 synthetic report"})
     pdf = client.get(f"/api/reports/{report['id']}/pdf", headers=analyst)
     assert pdf.status_code == 200 and pdf.content.startswith(b"%PDF")
-    return {"case_id":case["id"], "verification":results, "report_id":report["id"], "evidence_count":len(evidence)}, pdf.content
+    return {"case_id":case["id"], "verification":results, "batch_before_tamper":"VERIFIED",
+            "batch_after_tamper":tampered_batch["status"], "automatic_findings":len(findings),
+            "report_id":report["id"], "evidence_count":len(evidence)}, pdf.content
 
 
 def main():
@@ -54,9 +60,12 @@ def main():
     sys.path.insert(0, str(root / "backend"))
     with tempfile.TemporaryDirectory(prefix="jocky-demo-") as directory:
         temp = Path(directory)
+        iocs = temp / "iocs.json"
+        iocs.write_text(json.dumps({"ips": [], "sha256": [], "drivers": []}), encoding="utf-8")
         os.environ.update(DATABASE_URL="sqlite:///" + (temp / "demo.db").as_posix(), EVIDENCE_DIR=str(temp / "evidence"),
             STORAGE_BACKEND="local", BLOCKCHAIN_MOCK="true", BLOCKCHAIN_MOCK_DB=str(temp / "chain.db"),
-            DEMO_EMAIL="analyst@jocky.local", DEMO_PASSWORD="jocky-demo", AGENT_API_KEY="dev-agent-key")
+            DEMO_EMAIL="analyst@jocky.local", DEMO_PASSWORD="jocky-demo", AGENT_API_KEY="dev-agent-key",
+            JOCKY_IOC_PATH=str(iocs))
         from fastapi.testclient import TestClient
         from app.main import app
         from app import storage

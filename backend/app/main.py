@@ -20,7 +20,7 @@ from .editor import router as editor_router
 from .rate_limit import RateLimitMiddleware
 
 
-SAFE_CAPABILITIES = {"system.info", "process.list", "network.connections"}
+SAFE_CAPABILITIES = {"system.info", "system.drivers", "process.list", "network.connections", "logs.system"}
 
 
 @asynccontextmanager
@@ -69,7 +69,7 @@ class InvestigationUpdate(BaseModel):
 class JobCreate(BaseModel):
     investigation_id: str
     agent_id: str
-    capability: str
+    capability: str = Field(max_length=100)
 
 
 class AgentRegistration(BaseModel):
@@ -215,8 +215,11 @@ def jobs(db: Session = Depends(get_db), _user: models.User = Depends(current_use
 
 @app.post("/api/jobs", response_model=JobOut, status_code=201)
 def create_job(body: JobCreate, db: Session = Depends(get_db), _user: models.User = Depends(require_analyst)):
-    if body.capability not in SAFE_CAPABILITIES:
+    module_request = body.capability.startswith("process.modules:") and body.capability.removeprefix("process.modules:").isdigit()
+    if body.capability not in SAFE_CAPABILITIES and not module_request:
         raise HTTPException(status_code=422, detail="Unsupported collection capability")
+    if module_request and not 1 <= int(body.capability.removeprefix("process.modules:")) <= 2**32 - 1:
+        raise HTTPException(status_code=422, detail="Process ID must be between 1 and 4294967295")
     investigation = db.get(models.Investigation, body.investigation_id)
     if investigation is None:
         raise HTTPException(status_code=404, detail="Investigation not found")
@@ -265,11 +268,33 @@ def complete_job(agent_id: str, job_id: str, body: Completion, db: Session = Dep
             object_key=f"{row.investigation_id}/{row.id}.json",
             sha256=hashlib.sha256(data).hexdigest(),
             size_bytes=len(data),
-            details={"agent_id": agent_id},
+            collected_at=models.now(),
+            details={},
         )
         storage.put_object(evidence.object_key, data)
         db.add(evidence)
         db.flush()
+        agent_record = db.get(models.Agent, agent_id)
+        provenance = {
+            "schema": "jocky-collection-manifest-v1",
+            "evidence_id": evidence.id,
+            "investigation_id": row.investigation_id,
+            "job_id": row.id,
+            "agent_id": agent_id,
+            "agent_hostname": agent_record.hostname if agent_record else agent_id,
+            "agent_platform": agent_record.platform if agent_record else "unknown",
+            "agent_version": agent_record.version if agent_record else "unknown",
+            "capability": row.capability,
+            "collected_at_utc": evidence.collected_at.isoformat(),
+            "evidence_sha256": evidence.sha256,
+        }
+        canonical_manifest = json.dumps(provenance, sort_keys=True, separators=(",", ":")).encode()
+        evidence.details = {**provenance, "collection_manifest_sha256": hashlib.sha256(canonical_manifest).hexdigest()}
+        from .detection import persist as analyze_evidence
+        try:
+            analyze_evidence(db, evidence, body.payload)
+        except (OSError, ValueError, TypeError):
+            evidence.details = {**evidence.details, "analysis_status": "failed", "finding_count": 0}
         owner = db.get(models.Investigation, row.investigation_id).owner_id
         db.add(models.CustodyEvent(evidence_id=evidence.id, event_type="collection", from_entity=agent_id, to_entity=owner))
         audit(db, agent_id, "evidence.collect", evidence.id, sha256=evidence.sha256)

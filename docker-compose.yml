@@ -33,16 +33,20 @@ services:
     env_file: .env.example
     environment:
       DATABASE_URL: postgresql+psycopg://jocky:jocky@postgres:5432/jocky
+      JOCKY_IOC_PATH: /app/config/iocs.json
       STORAGE_BACKEND: s3
       BLOCKCHAIN_MOCK: ${BLOCKCHAIN_MOCK:-true}
       BLOCKCHAIN_MOCK_DB: /data/mock-chain.db
-      BLOCKCHAIN_RPC_URL: http://ganache:8545
+      BLOCKCHAIN_RPC_URL: ${BLOCKCHAIN_RPC_URL:-http://ganache:8545}
+      BLOCKCHAIN_CHAIN_ID: ${BLOCKCHAIN_CHAIN_ID:-}
       BLOCKCHAIN_CONTRACT_ADDRESS: ${BLOCKCHAIN_CONTRACT_ADDRESS:-}
       BLOCKCHAIN_ACCOUNT: ${BLOCKCHAIN_ACCOUNT:-}
+      BLOCKCHAIN_PRIVATE_KEY: ${BLOCKCHAIN_PRIVATE_KEY:-}
       BLOCKCHAIN_ABI_PATH: /app/blockchain/deployment.json
     volumes:
       - registry-data:/data
       - ./blockchain:/app/blockchain:ro
+      - ./backend/config:/app/config:ro
     ports:
       - "127.0.0.1:8000:8000"
     depends_on:

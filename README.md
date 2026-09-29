@@ -13,6 +13,8 @@ This prototype includes:
 - Tests, examples, and documentation.
 - Hash-only Solidity registry, persistent mock/Web3 clients, custody history and audit.
 - Findings, multi-machine case comparison, mock-only Monaco editor and PDF reports.
+- Cross-machine case timelines and hash-linked collection provenance manifests.
+- A Vercel-ready public showcase with synthetic Windows/Ubuntu fixtures and a clearly simulated integrity interaction.
 
 ## Integrated Architecture
 
@@ -82,7 +84,13 @@ Default demo login (local development only):
 - Email: `analyst@jocky.local`
 - Password: `jocky-demo`
 
-The Compose stack starts a Linux agent registered as `demo-agent`. Create an investigation and schedule a supported collection from the Jobs view. Evidence is stored as JSON in the S3-compatible object store with a SHA-256 digest. The API checks the digest when evidence is opened.
+The Compose stack starts a Linux agent registered as `demo-agent`. Create an investigation and schedule system, driver, process, network, recent system-log, or per-process module collection from the Jobs view. Evidence is stored as JSON in the S3-compatible object store with a SHA-256 digest. The API checks the digest when evidence is opened and runs the local explainable triage rules when collection completes. Configure offline indicators by editing `backend/config/iocs.json` using `backend/config/iocs.example.json` as a template; matches produce review findings, never malware verdicts.
+
+In the Blockchain view, register individual evidence or commit an investigation's evidence set as a versioned SHA-256 Merkle root, then verify the root and every item inclusion proof. Compose defaults to a persistent **mock** registry; it is explicitly labelled simulated. A local EVM setup is described in [evidence integrity](docs/blockchain/evidence-integrity.md).
+
+For a dashboard-visible negative-case video, run `python3 scripts/seed_dashboard_demo.py` while the local Compose stack is running. It creates a clearly labelled synthetic investigation with fabricated suspicious-process and unusual-port evidence, causing the normal rules to generate findings in the dashboard. These records persist in the local demo workspace; this is synthetic test data, not malware or a real endpoint. The separate `scripts/demo_e2e.py` remains isolated and does not populate the dashboard.
+
+For a public static showcase, deploy `frontend/` to Vercel with `VITE_DEMO_MODE=true`; see [the Vercel showcase guide](docs/demo/vercel-showcase.md). It uses only bundled synthetic fixtures and never calls the backend. The cross-machine timeline and collection provenance are available inside each case detail in the local app. Run `python scripts/detection_benchmark.py` for a small labeled-rule regression check; it is not a real-world detection-accuracy benchmark.
 
 This is a prototype. The LLVM backend lowers each investigation and IR operation to calls into the audited Rust runtime. Forensic collectors remain runtime library functions rather than being inlined as platform-specific LLVM instructions. Agent authentication uses a shared development key; production deployments need per-agent credentials, TLS, audited enrollment, and an explicit authorization policy before connecting real endpoints.
 
@@ -93,6 +101,7 @@ investigation "Suspicious process triage" {
   target host("localhost")
 
   collect system.info() as sys
+  collect system.drivers() as drivers
   collect process.list() as processes
   collect network.connections() as connections
 
@@ -100,6 +109,7 @@ investigation "Suspicious process triage" {
   report "triage-report" {
     include sys
     include processes
+    include drivers
     include connections
   }
 }

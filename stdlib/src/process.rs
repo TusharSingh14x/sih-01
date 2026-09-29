@@ -11,7 +11,7 @@ fn observed_at() -> String {
 pub fn list() -> Result<Value> {
     let timestamp = observed_at();
     Ok(json!(jocky_agent_linux::collect_processes()?.into_iter()
-        .map(|process| json!({"pid": process.pid, "name": process.name, "timestamp": timestamp}))
+        .map(|process| json!({"pid": process.pid, "name": process.name, "parent_pid": process.parent_pid, "exe": process.exe, "command_line": process.command_line, "timestamp": timestamp}))
         .collect::<Vec<_>>()))
 }
 
@@ -19,7 +19,7 @@ pub fn list() -> Result<Value> {
 pub fn list() -> Result<Value> {
     let timestamp = observed_at();
     Ok(json!(jocky_agent_windows::collect_processes()?.into_iter()
-        .map(|process| json!({"pid": process.pid, "name": process.name, "timestamp": timestamp}))
+        .map(|process| json!({"pid": process.pid, "name": process.name, "parent_pid": process.parent_pid, "exe": process.exe, "command_line": process.command_line, "timestamp": timestamp}))
         .collect::<Vec<_>>()))
 }
 

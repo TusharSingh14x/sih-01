@@ -51,10 +51,18 @@ fn tick(client: &Client, api: &str, key: &str, id: &str) -> Result<()> {
 }
 
 fn collect(capability: &str) -> Result<Value> {
+    if let Some(pid) = capability.strip_prefix("process.modules:") {
+        let pid = pid.parse::<u32>().ok().filter(|pid| *pid > 0)
+            .context("process.modules requires a positive PID")?;
+        return jocky_stdlib::invoke("process.modules", &[json!(pid)]);
+    }
     match capability {
         "system.info" => system_info(),
+        "system.drivers" => system_drivers(),
         "process.list" => process_list(),
         "network.connections" => network_connections(),
+        "logs.system" if cfg!(target_os = "linux") => jocky_stdlib::invoke("logs.journal", &[]),
+        "logs.system" if cfg!(target_os = "windows") => jocky_stdlib::invoke("logs.windows_events", &[json!("System")]),
         _ => anyhow::bail!("unsupported collection capability"),
     }
 }
@@ -81,6 +89,12 @@ fn network_connections() -> Result<Value> {
 
 #[cfg(not(any(target_os = "linux", target_os = "windows")))]
 fn system_info() -> Result<Value> { anyhow::bail!("unsupported platform") }
+#[cfg(target_os = "linux")]
+fn system_drivers() -> Result<Value> { jocky_agent_linux::collect_drivers() }
+#[cfg(target_os = "windows")]
+fn system_drivers() -> Result<Value> { jocky_agent_windows::collect_drivers() }
+#[cfg(not(any(target_os = "linux", target_os = "windows")))]
+fn system_drivers() -> Result<Value> { anyhow::bail!("unsupported platform") }
 #[cfg(not(any(target_os = "linux", target_os = "windows")))]
 fn process_list() -> Result<Value> { anyhow::bail!("unsupported platform") }
 #[cfg(not(any(target_os = "linux", target_os = "windows")))]

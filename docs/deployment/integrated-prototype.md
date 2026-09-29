@@ -1,6 +1,6 @@
 # Integrated local deployment
 
-Requirements: Docker Compose, or Python 3.11+, Node 22+, Rust stable; clang for
+Requirements: Docker Compose, or Python 3.11+, Node 22+, Rust 1.88; clang for
 native executable generation. Use the repository root as working directory.
 
 ```sh
@@ -13,6 +13,20 @@ CLI, applies Alembic migrations and supports the web editor. Default registry
 mode is mock. PostgreSQL, S3-compatible object storage and mock-chain state use
 named volumes. Ganache RPC binds localhost:8545. Do not delete volumes containing
 real evidence. Compose credentials are development-only.
+
+The Compose agent collects system information, process inventory, network
+connections, loaded drivers/kernel modules, and bounded recent platform logs.
+Schedule `process.modules:<pid>` through the Jobs API when a specific process
+needs module inventory. The agent accepts only these named read-only jobs; it
+does not execute arbitrary scripts. Evidence intake runs the bounded triage rules
+and optional local indicator file at `backend/config/iocs.json`. Keep the IOC
+file operator-managed and offline.
+
+In Blockchain, register an evidence item or create an investigation batch. The
+batch page shows the SHA-256 Merkle root, inclusion proof checks, transaction
+identifier, and whether the registry is a mock simulation or local EVM. Edit
+`backend/config/iocs.json` with the schema in `backend/config/iocs.example.json`
+and the backend reads updated contents when each evidence payload arrives.
 
 ## Without Docker
 
@@ -37,11 +51,12 @@ requires local database access; there is no public self-registration endpoint.
 
 ## Demo and tests
 
-`python scripts/demo_e2e.py` creates an isolated temporary workspace, nine
-synthetic evidence records across three machines, two findings, registry
-commitments and a deliberately modified synthetic object. It asserts PC-002
-VERIFIED and PC-001 MISMATCH and writes output/pdf/demo-report.pdf. It does not
-seed or alter your running server. Browser E2E tests seed their own mock records.
+`python scripts/demo_e2e.py` creates an isolated temporary workspace with
+synthetic evidence across three machines. It demonstrates automatic process and
+network findings, Merkle inclusion proofs, individual hash verification, batch
+verification before and after a synthetic evidence change, and PDF generation.
+It does not seed or alter your running server. Browser E2E tests use their own
+mock records.
 
 `make setup/test/lint/build/docker/demo` provides shortcuts (GNU Make required).
 Without Make use the corresponding commands in the root Makefile. CI runs Rust

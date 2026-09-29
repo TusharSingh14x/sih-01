@@ -1,0 +1,5 @@
+{
+  "ips": ["198.51.100.10"],
+  "sha256": ["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"],
+  "drivers": ["example-review-only-driver"]
+}

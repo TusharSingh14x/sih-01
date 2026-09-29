@@ -70,6 +70,7 @@ export default function App() {
   const [selectedInvestigation, setSelectedInvestigation] = useState('')
   const [selectedAgent, setSelectedAgent] = useState('')
   const [capability, setCapability] = useState('system.info')
+  const [processPid, setProcessPid] = useState('')
   const [preview, setPreview] = useState<unknown>(null)
   const [caseId, setCaseId] = useState('')
   const [selectedAgents, setSelectedAgents] = useState<string[]>([])
@@ -101,7 +102,7 @@ export default function App() {
     setBusy(true); setError('')
     try {
       if (modal === 'investigation') { await api.createInvestigation(token, title, description, selectedAgents); setSelectedAgents([]) }
-      if (modal === 'job') await api.createJob(token, selectedInvestigation, selectedAgent, capability)
+      if (modal === 'job') await api.createJob(token, selectedInvestigation, selectedAgent, capability === 'process.modules' ? `process.modules:${processPid}` : capability)
       if (modal === 'report') await api.createReport(token, selectedInvestigation, title)
       setModal(null); setTitle(''); setDescription(''); await refresh()
     } catch (err) { setError((err as Error).message) }
@@ -132,7 +133,7 @@ export default function App() {
       <main className="content">
         <div className="page-heading"><div><p className="eyebrow">WORKSPACE / {section.toUpperCase()}</p><h1>{section}</h1></div><div className="heading-actions">{section === 'Overview' || section === 'Investigations' ? <button className="primary" onClick={() => setModal('investigation')}><Plus size={16} /> New investigation</button> : null}{section === 'Jobs' && <button className="primary" disabled={!agents.length || !openCases.length} onClick={() => { setSelectedInvestigation(openCases[0]?.id || ''); setSelectedAgent(agents[0]?.id || ''); setModal('job') }}><Plus size={16} /> Schedule collection</button>}{section === 'Reports' && <button className="primary" disabled={!investigations.length} onClick={() => { setSelectedInvestigation(investigations[0]?.id || ''); setModal('report') }}><Plus size={16} /> Generate report</button>}</div></div>
         {error && <div className="alert" role="alert">{error}<button aria-label="Dismiss error" onClick={() => setError('')}><X size={16} /></button></div>}
-        {section === 'Blockchain' && <BlockchainPage token={token} evidence={evidence} refresh={refresh} />}
+        {section === 'Blockchain' && <BlockchainPage token={token} evidence={evidence} investigations={investigations} refresh={refresh} />}
         {section === 'Custody' && <CustodyPage token={token} evidence={evidence} />}
         {section === 'Findings' && <FindingsPage token={token} />}
         {section === 'Editor' && <EditorPage token={token} />}
@@ -156,7 +157,7 @@ export default function App() {
           {modal !== 'job' && <label>Title<input value={title} onChange={e => setTitle(e.target.value)} minLength={3} maxLength={200} required autoFocus /></label>}
           {modal === 'investigation' && <><label>Description<textarea value={description} onChange={e => setDescription(e.target.value)} rows={4} maxLength={5000} /></label><fieldset className="agent-picker"><legend>Assign machines</legend>{agents.map(a => <label key={a.id}><input type="checkbox" checked={selectedAgents.includes(a.id)} onChange={e => setSelectedAgents(current => e.target.checked ? [...current, a.id] : current.filter(id => id !== a.id))} />{a.hostname}</label>)}{!agents.length && <span>No agents registered</span>}</fieldset></>}
           {modal !== 'investigation' && <label>Investigation<select value={selectedInvestigation} onChange={e => setSelectedInvestigation(e.target.value)} required>{(modal === 'job' ? openCases : investigations).map(item => <option key={item.id} value={item.id}>{item.title}</option>)}</select></label>}
-          {modal === 'job' && <><label>Agent<select value={selectedAgent} onChange={e => setSelectedAgent(e.target.value)} required>{agents.map(item => <option key={item.id} value={item.id}>{item.hostname} ({item.platform})</option>)}</select></label><label>Collection capability<select value={capability} onChange={e => setCapability(e.target.value)}><option value="system.info">System information</option><option value="process.list">Process list</option><option value="network.connections">Network connections</option></select></label></>}
+          {modal === 'job' && <><label>Agent<select value={selectedAgent} onChange={e => setSelectedAgent(e.target.value)} required>{agents.map(item => <option key={item.id} value={item.id}>{item.hostname} ({item.platform})</option>)}</select></label><label>Collection capability<select value={capability} onChange={e => setCapability(e.target.value)}><option value="system.info">System information</option><option value="system.drivers">Loaded driver or kernel module inventory</option><option value="process.list">Process list</option><option value="process.modules">Loaded modules for a process</option><option value="network.connections">Network connections</option><option value="logs.system">Recent system logs</option></select></label>{capability === 'process.modules' && <label>Process ID<input type="number" min="1" max="4294967295" value={processPid} onChange={event => setProcessPid(event.target.value)} required /></label>}</>}
           {error && <p className="error" role="alert">{error}</p>}
           <div className="modal-actions"><button type="button" className="secondary" onClick={() => setModal(null)}>Cancel</button><button className="primary" disabled={busy}>{busy ? 'Working...' : modal === 'job' ? 'Schedule' : modal === 'report' ? 'Generate' : 'Create'}</button></div>
         </form>

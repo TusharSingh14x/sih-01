@@ -55,7 +55,7 @@ pub fn analyze(program: &Program) -> Result<(), SemanticError> {
 
 fn validate_call(call: &ForensicCall, bindings: &HashSet<String>) -> Result<(), SemanticError> {
     let expected = match (call.namespace.as_str(), call.function.as_str()) {
-        ("system", "info") | ("process", "list") | ("network", "connections")
+        ("system", "info") | ("system", "drivers") | ("process", "list") | ("network", "connections")
         | ("logs", "journal") => 0,
         ("process", "modules") => 1,
         ("filesystem", "metadata") | ("filesystem", "hash") | ("logs", "read")

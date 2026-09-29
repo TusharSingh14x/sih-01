@@ -67,15 +67,42 @@ class MockBlockchainClient:
 class BlockchainClient:
     mode = "evm"
 
-    def __init__(self, rpc_url, contract_address, abi_path, account):
+    def __init__(self, rpc_url, contract_address, abi_path, account=None, private_key=None):
         from web3 import Web3
         self.web3 = Web3(Web3.HTTPProvider(rpc_url, request_kwargs={"timeout": 15}))
         artifact = json.loads(Path(abi_path).read_text())
         self.contract = self.web3.eth.contract(address=Web3.to_checksum_address(contract_address), abi=artifact["abi"])
-        self.account = Web3.to_checksum_address(account)
+        self.private_key = private_key
+        if private_key:
+            derived = self.web3.eth.account.from_key(private_key).address
+            if account and Web3.to_checksum_address(account) != Web3.to_checksum_address(derived):
+                raise ValueError("BLOCKCHAIN_ACCOUNT does not match BLOCKCHAIN_PRIVATE_KEY")
+            self.account = Web3.to_checksum_address(derived)
+        elif account:
+            self.account = Web3.to_checksum_address(account)
+        else:
+            raise ValueError("Configure BLOCKCHAIN_PRIVATE_KEY or an unlocked BLOCKCHAIN_ACCOUNT")
+        if not self.web3.is_connected():
+            raise ValueError("Cannot connect to configured EVM RPC")
+        expected_chain_id = os.getenv("BLOCKCHAIN_CHAIN_ID")
+        if expected_chain_id and self.web3.eth.chain_id != int(expected_chain_id):
+            raise ValueError("Connected EVM chain ID does not match BLOCKCHAIN_CHAIN_ID")
+        from threading import RLock
+        self.send_lock = RLock()
 
     def _send(self, function):
-        receipt = self.web3.eth.wait_for_transaction_receipt(function.transact({"from": self.account}), timeout=30)
+        with self.send_lock:
+            if self.private_key:
+                transaction = function.build_transaction({
+                    "from": self.account,
+                    "nonce": self.web3.eth.get_transaction_count(self.account, "pending"),
+                    "chainId": self.web3.eth.chain_id,
+                })
+                signed = self.web3.eth.account.sign_transaction(transaction, self.private_key)
+                tx_hash = self.web3.eth.send_raw_transaction(signed.raw_transaction)
+            else:
+                tx_hash = function.transact({"from": self.account})
+            receipt = self.web3.eth.wait_for_transaction_receipt(tx_hash, timeout=60)
         if receipt.status != 1:
             raise ValueError("Registry transaction reverted")
         return self.web3.to_hex(receipt.transactionHash)

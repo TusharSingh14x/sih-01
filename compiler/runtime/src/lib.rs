@@ -113,7 +113,7 @@ fn filter_rows(value: &Value, predicate: &Predicate) -> Value {
         Value::Array(rows) => Value::Array(rows.iter().filter(|row| matches(row)).cloned().collect()),
         Value::Object(map) => {
             let mut result = map.clone();
-            for key in ["processes", "connections", "events", "lines", "modules"] {
+            for key in ["processes", "connections", "events", "lines", "modules", "drivers"] {
                 if let Some(Value::Array(rows)) = map.get(key) {
                     result.insert(key.to_string(), Value::Array(rows.iter().filter(|row| matches(row)).cloned().collect()));
                     return Value::Object(result);

@@ -9,6 +9,13 @@
 - Custody ownership checks, findings CRUD, audit trail, PDF snapshots.
 - Dashboard registry/custody/findings/case comparison and local Monaco editor.
 - Isolated tamper-detection demo and automated integration tests.
+- Agent-side process ancestry/path/command-line, network endpoint ports, loaded
+  driver inventories, and bounded recent event-log collection for Windows/Linux.
+- Automatic explainable triage findings at evidence intake, with optional
+  operator-managed offline IP/hash/driver indicators.
+- Versioned SHA-256 Merkle manifests, inclusion proofs, and registry-backed batch
+  root verification; the Compose default is visibly labelled as simulation.
+- CI release artifacts for Linux and Windows agents (unsigned development builds).
 
 ## Required before production
 

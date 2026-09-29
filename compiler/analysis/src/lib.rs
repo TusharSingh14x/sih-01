@@ -3,7 +3,7 @@ use serde_json::{json, Value};
 /// Triage indicators, not malware verdicts. Confidence is a heuristic, not a probability.
 pub fn analyze(capability: &str, evidence: &Value) -> Vec<Value> {
     let mut findings = Vec::new();
-    let rows = evidence.as_array().or_else(|| ["processes", "connections", "events", "lines"]
+    let rows = evidence.as_array().or_else(|| ["processes", "connections", "events", "lines", "modules", "drivers"]
         .iter().find_map(|key| evidence.get(key).and_then(Value::as_array)));
     let single = vec![evidence.clone()];
     for (index, row) in rows.unwrap_or(&single).iter().enumerate() {
@@ -16,9 +16,15 @@ pub fn analyze(capability: &str, evidence: &Value) -> Vec<Value> {
             if row["name"].as_str().unwrap_or("").to_lowercase().contains("miner") {
                 emit("process.miner", "process", "HIGH", "Possible mining process", 0.75);
             }
-            let path = row["path"].as_str().or_else(|| row["exe"].as_str()).unwrap_or("").replace('\\', "/").to_lowercase();
+            let path = row["path"].as_str().or_else(|| row["exe"].as_str()).or_else(|| row["name"].as_str()).unwrap_or("").replace('\\', "/").to_lowercase();
             if path.split('/').any(|part| part == "temp" || part == "tmp") {
                 emit("process.temp", "process", "MEDIUM", "Suspicious indicator: process in temporary directory", 0.45);
+            }
+        }
+        if capability == "process.modules" {
+            let path = row["path"].as_str().or_else(|| row["name"].as_str()).unwrap_or("").replace('\\', "/").to_lowercase();
+            if path.split('/').any(|part| part == "temp" || part == "tmp") {
+                emit("module.temp", "process", "HIGH", "Module loaded from temporary directory", 0.65);
             }
         }
         if capability == "network.connections" {

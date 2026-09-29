@@ -124,3 +124,14 @@ class AuditLog(Base):
     resource_id: Mapped[str] = mapped_column(String(100))
     details: Mapped[dict] = mapped_column(JSON, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, index=True)
+
+
+class EvidenceBatch(Base):
+    __tablename__ = "evidence_batches"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    investigation_id: Mapped[str] = mapped_column(ForeignKey("investigations.id"), index=True)
+    root: Mapped[str] = mapped_column(String(64))
+    manifest: Mapped[list] = mapped_column(JSON)
+    mode: Mapped[str] = mapped_column(String(10))
+    blockchain_tx_id: Mapped[str] = mapped_column(String(100))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)

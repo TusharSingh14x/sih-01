@@ -1,6 +1,7 @@
-FROM rust:slim AS build
+FROM rust:1.88-slim-bookworm AS build
 WORKDIR /src
 COPY Cargo.toml ./
+COPY Cargo.lock ./
 COPY compiler ./compiler
 COPY stdlib ./stdlib
 COPY agent ./agent

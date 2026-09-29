@@ -13,6 +13,7 @@ from .audit import audit
 from .database import get_db
 from .registry import get_blockchain
 from .security import current_user, require_analyst
+from .merkle import ALGORITHM as MERKLE_ALGORITHM, tree as merkle_tree
 
 router = APIRouter(prefix="/api")
 registry_lock = RLock()
@@ -157,6 +158,102 @@ def verify(evidence_id: str, db: Session = Depends(get_db), user=Depends(current
     db.commit()
     return {"evidence_id": evidence_id, "status": row.verification_status, "actual_sha256": actual,
             "registered_sha256": on_chain, "metadata_sha256": evidence.sha256, "mode": row.mode, "verified_at": row.verified_at}
+
+
+class BatchCreate(BaseModel):
+    investigation_id: str
+    evidence_ids: list[str] = Field(min_length=1, max_length=256)
+
+
+@router.post("/blockchain/batches", status_code=201)
+def register_batch(body: BatchCreate, db: Session = Depends(get_db), user=Depends(require_analyst), chain=Depends(get_blockchain)):
+    case = require_row(db, m.Investigation, body.investigation_id)
+    if user.id != case.owner_id and user.role != "admin":
+        raise HTTPException(403, "Case owner or admin required to commit evidence")
+    ids = sorted(set(body.evidence_ids))
+    if len(ids) != len(body.evidence_ids):
+        raise HTTPException(422, "Evidence IDs must be unique")
+    rows = db.scalars(select(m.Evidence).where(m.Evidence.id.in_(ids), m.Evidence.investigation_id == case.id)).all()
+    if len(rows) != len(ids):
+        raise HTTPException(422, "Every evidence item must belong to this investigation")
+    if sum(row.size_bytes for row in rows) > 64 * 1024 * 1024:
+        raise HTTPException(413, "Evidence batch exceeds 64 MiB")
+    manifest = []
+    for evidence in sorted(rows, key=lambda row: row.id):
+        try:
+            actual = hashlib.sha256(storage.get_object(evidence.object_key)).hexdigest()
+        except (OSError, KeyError) as exc:
+            raise HTTPException(409, f"Evidence {evidence.id} is unavailable") from exc
+        if actual != evidence.sha256:
+            raise HTTPException(409, f"Evidence {evidence.id} failed its collection hash check")
+        manifest.append({"evidence_id": evidence.id, "sha256": evidence.sha256, "capability": evidence.capability,
+                         "size_bytes": evidence.size_bytes, "agent_id": evidence.details.get("agent_id"),
+                         "collected_at": evidence.collected_at.isoformat()})
+    root, proofs = merkle_tree(manifest)
+    batch = m.EvidenceBatch(investigation_id=case.id, root=root, manifest=manifest, mode=chain.mode, blockchain_tx_id="pending")
+    db.add(batch)
+    db.flush()
+    try:
+        tx = chain.register_evidence("batch:" + batch.id, root, case.owner_id)
+    except Exception as exc:
+        db.rollback()
+        raise HTTPException(503, "Merkle root registration failed") from exc
+    batch.blockchain_tx_id = tx
+    audit(db, user.id, "blockchain.batch.register", batch.id,
+          algorithm=MERKLE_ALGORITHM, root=root, evidence_count=len(manifest), mode=chain.mode, transaction=tx)
+    db.commit()
+    return {"id": batch.id, "investigation_id": batch.investigation_id, "algorithm": MERKLE_ALGORITHM,
+            "root": root, "mode": batch.mode, "blockchain_tx_id": tx, "created_at": batch.created_at,
+            "evidence": [{**item, "proof": proofs[index]} for index, item in enumerate(manifest)]}
+
+
+@router.get("/blockchain/batches")
+def evidence_batches(db: Session = Depends(get_db), _user=Depends(current_user)):
+    return [{"id": batch.id, "investigation_id": batch.investigation_id, "root": batch.root,
+             "algorithm": MERKLE_ALGORITHM, "mode": batch.mode, "blockchain_tx_id": batch.blockchain_tx_id,
+             "created_at": batch.created_at, "evidence_count": len(batch.manifest)}
+            for batch in db.scalars(select(m.EvidenceBatch).order_by(m.EvidenceBatch.created_at.desc())).all()]
+
+
+@router.get("/blockchain/batches/{batch_id}")
+def evidence_batch_manifest(batch_id: str, db: Session = Depends(get_db), _user=Depends(current_user)):
+    batch = require_row(db, m.EvidenceBatch, batch_id)
+    _, proofs = merkle_tree(batch.manifest)
+    return {"id": batch.id, "investigation_id": batch.investigation_id, "root": batch.root,
+            "algorithm": MERKLE_ALGORITHM, "mode": batch.mode, "blockchain_tx_id": batch.blockchain_tx_id,
+            "created_at": batch.created_at, "evidence_count": len(batch.manifest),
+            "evidence": [{**item, "proof": proofs[index]} for index, item in enumerate(batch.manifest)]}
+
+
+@router.get("/blockchain/batches/{batch_id}/verify")
+def verify_batch(batch_id: str, db: Session = Depends(get_db), user=Depends(current_user), chain=Depends(get_blockchain)):
+    batch = require_row(db, m.EvidenceBatch, batch_id)
+    if batch.mode != chain.mode:
+        raise HTTPException(409, "Registry mode differs from original commitment")
+    current = []
+    intact = True
+    try:
+        for item in batch.manifest:
+            evidence = require_row(db, m.Evidence, item["evidence_id"])
+            actual = hashlib.sha256(storage.get_object(evidence.object_key)).hexdigest()
+            intact &= actual == item["sha256"] == evidence.sha256
+            current.append({**item, "sha256": actual})
+        root, proofs = merkle_tree(current)
+        registered = chain.get_evidence("batch:" + batch.id)["sha256"]
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(503, "Evidence or registry unavailable; batch verification not performed") from exc
+    proof_results = []
+    for index, item in enumerate(current):
+        from .merkle import verify as verify_proof
+        proof_results.append({"evidence_id": item["evidence_id"], "valid": verify_proof(item, proofs[index], registered)})
+    intact &= root == batch.root == registered and all(result["valid"] for result in proof_results)
+    audit(db, user.id, "blockchain.batch.verify", batch.id, status="VERIFIED" if intact else "MISMATCH", root=root)
+    db.commit()
+    return {"id": batch.id, "status": "VERIFIED" if intact else "MISMATCH", "algorithm": MERKLE_ALGORITHM,
+            "stored_root": batch.root, "current_root": root, "registered_root": registered,
+            "mode": batch.mode, "proofs": proof_results}
 
 
 @router.get("/custody/history")

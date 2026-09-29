@@ -2,12 +2,14 @@ investigation "Authorized endpoint triage" {
   target agent("demo-agent")
   collect system.info() as sys
   collect process.list() as processes
+  collect system.drivers() as drivers
   collect network.connections() as connections
   analyze processes where name contains "powershell"
   report "triage-report" {
     include sys
     include processes
     include processes_analysis
+    include drivers
     include connections
   }
 }

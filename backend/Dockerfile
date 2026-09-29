@@ -1,6 +1,7 @@
-FROM rust:1-bookworm AS compiler
+FROM rust:1.88-bookworm AS compiler
 WORKDIR /source
 COPY Cargo.toml ./
+COPY Cargo.lock ./
 COPY compiler ./compiler
 COPY stdlib ./stdlib
 COPY agent ./agent

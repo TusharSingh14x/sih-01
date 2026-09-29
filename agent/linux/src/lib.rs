@@ -8,6 +8,9 @@ use serde::Serialize;
 pub struct LinuxProcess {
     pub pid: u32,
     pub name: String,
+    pub parent_pid: Option<u32>,
+    pub exe: Option<String>,
+    pub command_line: Vec<String>,
 }
 
 pub fn collect_processes() -> anyhow::Result<Vec<LinuxProcess>> {
@@ -22,7 +25,13 @@ pub fn collect_processes() -> anyhow::Result<Vec<LinuxProcess>> {
             .unwrap_or_default()
             .trim()
             .to_string();
-        processes.push(LinuxProcess { pid, name });
+        let status = fs::read_to_string(entry.path().join("status")).unwrap_or_default();
+        let parent_pid = status.lines().find_map(|line| line.strip_prefix("PPid:").and_then(|s| s.trim().parse().ok()));
+        let exe = fs::read_link(entry.path().join("exe")).ok().map(|p| p.to_string_lossy().into_owned());
+        let command_line = fs::read(entry.path().join("cmdline")).unwrap_or_default()
+            .split(|b| *b == 0).filter(|s| !s.is_empty()).take(128)
+            .map(|s| String::from_utf8_lossy(&s[..s.len().min(4096)]).into_owned()).collect();
+        processes.push(LinuxProcess { pid, name, parent_pid, exe, command_line });
     }
     processes.sort_by_key(|process| process.pid);
     Ok(processes)
@@ -60,6 +69,8 @@ pub fn collect_network_connections() -> anyhow::Result<serde_json::Value> {
                     "local_address": decode_endpoint(columns[1]),
                     "remote_address": decode_endpoint(columns[2]),
                     "state": state_name(columns[3]),
+                    "remote_port": columns[2].rsplit_once(':').and_then(|(_, p)| u16::from_str_radix(p, 16).ok()),
+                    "local_port": columns[1].rsplit_once(':').and_then(|(_, p)| u16::from_str_radix(p, 16).ok()),
                     "local_address_raw": columns[1],
                     "remote_address_raw": columns[2],
                     "state_raw": columns[3]
@@ -69,6 +80,23 @@ pub fn collect_network_connections() -> anyhow::Result<serde_json::Value> {
         truncated |= lines.next().is_some();
     }
     Ok(serde_json::json!({"connections": rows, "source": "/proc/net", "truncated": truncated}))
+}
+
+pub fn collect_drivers() -> anyhow::Result<serde_json::Value> {
+    use std::io::Read;
+    let mut bytes = Vec::new();
+    fs::File::open("/proc/modules")?.take(1024 * 1024 + 1).read_to_end(&mut bytes)?;
+    if bytes.len() > 1024 * 1024 { anyhow::bail!("driver inventory exceeds 1 MiB"); }
+    let drivers = String::from_utf8_lossy(&bytes).lines().take(4096).filter_map(|line| {
+        let fields: Vec<_> = line.split_whitespace().collect();
+        (fields.len() >= 6).then(|| serde_json::json!({
+            "name": fields[0], "size_bytes": fields[1].parse::<u64>().ok(),
+            "references": fields[2].parse::<u64>().ok(), "used_by": fields[3],
+            "state": fields[4], "source": "/proc/modules"
+        }))
+    }).collect::<Vec<_>>();
+    let truncated = drivers.len() >= 4096;
+    Ok(serde_json::json!({"drivers": drivers, "source": "/proc/modules", "truncated": truncated}))
 }
 
 fn decode_endpoint(raw: &str) -> Option<String> {

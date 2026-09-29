@@ -1,3 +1,5 @@
+import hashlib
+import json
 import os
 
 from fastapi.testclient import TestClient
@@ -52,6 +54,19 @@ def test_investigation_collection_and_report(tmp_path):
         items = client.get("/api/evidence", headers=analyst).json()
         assert len(items) == 1
         assert len(items[0]["sha256"]) == 64
+        manifest = items[0]["details"]
+        assert manifest["schema"] == "jocky-collection-manifest-v1"
+        assert manifest["agent_platform"] == "linux"
+        assert manifest["agent_version"] == "0.1.0"
+        assert manifest["evidence_sha256"] == items[0]["sha256"]
+        assert len(manifest["collection_manifest_sha256"]) == 64
+        manifest_fields = {key: manifest[key] for key in (
+            "schema", "evidence_id", "investigation_id", "job_id", "agent_id",
+            "agent_hostname", "agent_platform", "agent_version", "capability",
+            "collected_at_utc", "evidence_sha256",
+        )}
+        canonical_manifest = json.dumps(manifest_fields, sort_keys=True, separators=(",", ":")).encode()
+        assert hashlib.sha256(canonical_manifest).hexdigest() == manifest["collection_manifest_sha256"]
         assert client.get(f"/api/evidence/{items[0]['id']}/content", headers=analyst).json()["hostname"] == "host-1"
         report = client.post("/api/reports", headers=analyst, json={"investigation_id": case_id, "title": "Triage report"})
         assert report.status_code == 201

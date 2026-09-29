@@ -16,6 +16,7 @@ pub fn invoke(capability: &str, args: &[Value]) -> Result<Value> {
     }
     match (capability, args) {
         ("system.info", []) => system::info(),
+        ("system.drivers", []) => system::drivers(),
         ("process.list", []) => process::list(),
         ("process.modules", [Value::Number(pid)]) => {
             let pid = pid.as_u64().filter(|pid| *pid > 0 && *pid <= u32::MAX as u64)
@@ -40,6 +41,7 @@ pub fn invoke(capability: &str, args: &[Value]) -> Result<Value> {
 pub fn invoke_mock(capability: &str, args: &[Value]) -> Result<Value> {
     match (capability, args) {
         ("system.info", []) => Ok(jocky_agent_mock::system_info()),
+        ("system.drivers", []) => Ok(serde_json::json!({"drivers": [], "source": "mock", "truncated": false})),
         ("process.list", []) => Ok(jocky_agent_mock::processes()),
         ("network.connections", []) => Ok(jocky_agent_mock::connections()),
         ("logs.journal", []) | ("logs.windows_events", [Value::String(_)]) |
